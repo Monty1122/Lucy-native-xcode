@@ -34,6 +34,7 @@ class Assistant: ObservableObject {
     @Published var availableVoices: [VoiceProfile] = []
     @Published var selectedVoiceID: String?
     
+    private let emailService = EmailService() // The email service is already here
     private let speechService = SpeechService()
     private let speechRecognitionService = SpeechRecognitionService()
     private let generativeAIService = GenerativeAIService()
@@ -144,7 +145,44 @@ class Assistant: ObservableObject {
                 return
             }
             
-            if userPrompt.lowercased().starts(with: "remember") {
+            // ** THE NEW EMAIL LOGIC **
+            let lowercasedPrompt = userPrompt.lowercased()
+            let emailTriggers = ["email david", "contact david", "tell david"]
+            
+            if let trigger = emailTriggers.first(where: lowercasedPrompt.starts(with:)) {
+                // Extract the message by removing the trigger phrase
+                let messageBody = String(userPrompt.dropFirst(trigger.count).trimmingCharacters(in: .whitespacesAndNewlines))
+                
+                guard !messageBody.isEmpty else {
+                    self.displayedText = "What should I tell David?"
+                    self.speechService.speak(text: "What should I tell David?", voiceIdentifier: self.selectedVoiceID)
+                    self.status = "Idle"
+                    stopThinkingTimer()
+                    return
+                }
+
+                self.status = "Sending Email..."
+                self.displayedText = "Okay, sending that to David."
+                
+                do {
+                    try await self.emailService.sendEmail(
+                        to: "david.keane@me.com",
+                        subject: "A Message from Lucy Assistant",
+                        body: messageBody
+                    )
+                    self.displayedText = "I've sent your message to David."
+                    self.speechService.speak(text: "I've sent your message to David.", voiceIdentifier: self.selectedVoiceID)
+                } catch {
+                    self.displayedText = "Sorry, I couldn't send the message to David."
+                    self.speechService.speak(text: "Sorry, I couldn't send the message.", voiceIdentifier: self.selectedVoiceID)
+                }
+                
+                self.status = "Idle"
+                stopThinkingTimer()
+                return // Exit after handling the email command
+            }
+            
+            if lowercasedPrompt.starts(with: "remember") {
                 let fact = String(userPrompt.dropFirst("remember".count).trimmingCharacters(in: .whitespacesAndNewlines))
                 await self.memoryService.remember(fact: fact)
                 let confirmation = "Okay, I'll remember that."
@@ -153,7 +191,7 @@ class Assistant: ObservableObject {
                 self.status = "Idle"
                 stopThinkingTimer()
                 return
-            } else if userPrompt.lowercased().starts(with: "forget") {
+            } else if lowercasedPrompt.starts(with: "forget") {
                 let subject = String(userPrompt.dropFirst("forget".count).trimmingCharacters(in: .whitespacesAndNewlines))
                 let success = await self.memoryService.forget(about: subject)
                 let confirmation = success ? "Okay, I've forgotten that." : "I don't have a memory about that."
